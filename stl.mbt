@@ -97,6 +97,21 @@ pub fn detect_format(data : Bytes) -> StlFormat {
 }
 
 ///|
+/// 去掉结尾的 `\r`。
+///
+/// Windows 的换行是 `\r\n`，按 `\n` 切完每行末尾会剩一个 `\r`。
+/// 不处理的话，行尾那个数字会变成 `-1\r` 这种没法解析的东西——
+/// 而 Windows 上导出的 STL 几乎全是 CRLF，真实文件一读就挂。
+fn strip_cr(s : StringView) -> StringView {
+  let n = s.length()
+  if n > 0 && s.code_unit_at(n - 1) == 0x0D {
+    s[:n - 1]
+  } else {
+    s
+  }
+}
+
+///|
 /// 在前 `limit` 个字节里找 ASCII 子串。
 ///
 /// 整个文件扫一遍是 O(n×m)，但这些关键字都很短、limit 也小，
@@ -146,7 +161,8 @@ pub fn parse_stl_ascii(text : String) -> Result[Mesh, String] {
     line_no = line_no + 1
     // 按空格切，顺便滤掉空串（行首缩进、连续空格都会产生空 token）
     let tokens : Array[StringView] = []
-    for token in raw_line.split(" ") {
+    for raw_token in raw_line.split(" ") {
+      let token = strip_cr(raw_token)
       if token.length() > 0 {
         tokens.push(token)
       }

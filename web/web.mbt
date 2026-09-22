@@ -51,11 +51,7 @@ pub fn preview(file_base64 : String) -> String {
 ///|
 /// 网页用的渲染尺寸。比库的默认值大一些，因为页面上展示得比较宽。
 fn preview_options() -> @stlkit.PreviewOptions {
-  {
-    ..@stlkit.PreviewOptions::default(),
-    width: 640,
-    height: 480,
-  }
+  { ..@stlkit.PreviewOptions::default(), width: 640, height: 480, }
 }
 
 ///|

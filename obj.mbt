@@ -32,7 +32,8 @@ pub fn parse_obj(text : String) -> Result[Mesh, String] {
   for raw_line in text.split("\n") {
     line_no = line_no + 1
     let tokens : Array[StringView] = []
-    for token in raw_line.split(" ") {
+    for raw_token in raw_line.split(" ") {
+      let token = strip_cr(raw_token)
       if token.length() > 0 {
         tokens.push(token)
       }

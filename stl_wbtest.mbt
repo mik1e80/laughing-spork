@@ -372,3 +372,46 @@ test "parse_stl 自动走对分支" {
   }
   assert_eq(from_binary.triangle_count(), 1)
 }
+
+// ── 换行符 ──────────────────────────────────────────────────────────────
+
+///|
+test "ASCII STL 支持 CRLF 换行" {
+  // Windows 上导出的 STL 几乎全是 CRLF。按 \n 切完每行末尾会剩一个 \r，
+  // 行尾那个数字就变成 `-1\r` 没法解析 —— 这个 bug 让工具在真实文件上
+  // 直接挂掉，而我自己造的测试数据是 LF 的，一直没暴露。
+  let crlf = to_crlf(unit_cube_ascii())
+  let mesh = match parse_stl_ascii(crlf) {
+    Ok(m) => m
+    Err(msg) => fail("CRLF 换行的文件不该读不了：\{msg}")
+  }
+  assert_eq(mesh.triangle_count(), 12)
+  assert_true(close(mesh.volume(), 1.0))
+}
+
+///|
+test "CRLF 的 ASCII STL 也能被格式判断认出来" {
+  let crlf = to_crlf(unit_cube_ascii())
+  assert_true(detect_format(@utf8.encode(crlf)) is Ascii)
+}
+
+///|
+test "只有 CRLF 也能解析" {
+  // 纯 CRLF（不带 LF）也要能处理
+  let crlf = to_crlf(unit_cube_ascii())
+  let mesh = match parse_stl(@utf8.encode(crlf)) {
+    Ok(m) => m
+    Err(msg) => fail("读不了：\{msg}")
+  }
+  assert_eq(mesh.triangle_count(), 12)
+}
+
+///|
+/// 把 LF 换行改写成 CRLF，用来构造 Windows 风格的文件内容。
+fn to_crlf(s : String) -> String {
+  let lines : Array[String] = []
+  for line in s.split("\n") {
+    lines.push(line.to_owned())
+  }
+  lines.join("\r\n")
+}
