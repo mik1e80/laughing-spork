@@ -3,8 +3,8 @@
 // 参数解析交给官方库 moonbitlang/core/argparse，文件读取交给
 // moonbitlang/x/fs，退出码用 moonbitlang/x/sys。
 //
-// 目前只有一条命令：info —— 读一个 STL 文件，报告它的基本情况。
-// 后面的 check（校验）、convert（转换）、preview（预览）陆续加。
+// 给一个 STL 或 OBJ 文件，打印它的体检报告：几何数据加四项校验结论。
+// 可选 --svg 参数顺便导出等轴测预览图。
 
 ///|
 /// 命令行定义。
@@ -19,7 +19,7 @@ fn command() -> @argparse.Command {
     positionals=[
       @argparse.PositionArg(
         "file",
-        about="要处理的 STL 文件路径",
+        about="要处理的模型文件路径（STL 或 OBJ）",
         num_args=@argparse.ValueRange(lower=0, upper=1),
       ),
     ],
@@ -39,10 +39,12 @@ fn command() -> @argparse.Command {
 fn help_text(cmd : @argparse.Command) -> String {
   cmd.render_help() +
   "\n示例：\n" +
-  "  stlkit model.stl            读一个模型，报告三角形数、体积、包围盒\n" +
+  "  stlkit model.stl            读一个模型，出体检报告\n" +
+  "  stlkit model.stl --svg a.svg  顺便导出等轴测预览图\n" +
   "  stlkit                      不带参数时打印这份帮助\n" +
   "\n" +
-  "模型从哪来：直接给文件路径即可，ASCII 和二进制两种 STL 都能认。\n"
+  "格式：二进制 STL、ASCII STL、OBJ 三种都能认，按文件内容判断，\n" +
+  "不看扩展名——从别处拷来的文件经常带着错的扩展名。\n"
 }
 
 ///|
