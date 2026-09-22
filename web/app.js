@@ -70,6 +70,13 @@ const CHECKS = [
     bad: (n) =>
       `有 ${n} 个三角形的法线朝向和顶点顺序对不上；多数切片软件会自己重算，但依赖文件里法线的工具会画错`,
   },
+  {
+    key: "绕向反了",
+    label: "绕向一致",
+    ok: "所有面的朝向一致",
+    bad: (n) =>
+      `有 ${n} 个面的顶点顺序写反了 —— 它们朝里了。水密性检查看不出这种问题，但体积会算错，切片软件也可能把实心区域填反`,
+  },
 ];
 
 /// 一行统计。label 和 value 都走 textContent，不碰 innerHTML。
@@ -209,6 +216,10 @@ function runFix() {
     done.push(`删掉 ${fixed["删重复面"]} 个重复面`);
   if (parseInt(fixed["补洞新增"] || "0", 10) > 0)
     done.push(`补洞：新增 ${fixed["补洞新增"]} 个三角形`);
+  if (parseInt(fixed["翻转绕向"] || "0", 10) > 0)
+    done.push(
+      `翻转 ${fixed["翻转绕向"]} 个绕向反了的面（体积从 ${currentFields["体积"]} 修正为 ${fixed["修复后体积"]}）`
+    );
   if (parseInt(fixed["重算法线"] || "0", 10) > 0)
     done.push(`重算 ${fixed["重算法线"]} 个三角形的法线`);
   if (done.length === 0) done.push("没有可以自动修复的问题");

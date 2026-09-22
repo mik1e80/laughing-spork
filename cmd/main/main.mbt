@@ -109,11 +109,13 @@ fn report(
   }
   println("  体积      \{fmt(mesh.volume(), 3)} mm³")
   println("  表面积    \{fmt(mesh.surface_area(), 3)} mm²")
+  let winding = @stlkit.check_winding_default(mesh)
+
   println("")
-  print_findings(check)
+  print_findings(check, winding)
 
   if fix_path != "" {
-    return fix_and_save(mesh, check, fix_path)
+    return fix_and_save(mesh, check, winding, fix_path)
   }
 
   if svg_path != "" {
@@ -134,8 +136,18 @@ fn report(
 /// 每一条「不通过」都要说清楚**为什么这是问题**，不能只报一个数字。
 /// 看到「有 3 条边界边」的人不知道这意味着什么，看到「切片软件分不清
 /// 哪里是外面」才知道要修。
-fn print_findings(check : @stlkit.ValidationReport) -> Unit {
+fn print_findings(check : @stlkit.ValidationReport, winding : @stlkit.WindingReport) -> Unit {
   let mut problems = 0
+
+  if winding.flipped_faces > 0 {
+    problems = problems + 1
+    println(
+      "  ✗ 有 \{winding.flipped_faces} 个面的绕向和其他面相反（顶点顺序写反了）",
+    )
+    println(
+      "    这些面朝里了：水密性检查看不出问题，但体积会算错，切片软件也可能把实心区域填反",
+    )
+  }
 
   if check.boundary_edge_count > 0 {
     problems = problems + 1
@@ -172,14 +184,20 @@ fn print_findings(check : @stlkit.ValidationReport) -> Unit {
 
   if problems == 0 {
     println("  ✓ 水密网格，拓扑上没有阻碍打印的问题")
-  } else if check.is_watertight() {
-    println("")
+    return
+  }
+
+  println("")
+  if !check.is_watertight() {
+    println("  结论：直接打印会失败，需要先修复")
+  } else if winding.flipped_faces > 0 {
+    // 绕向反了不会让切片失败（多数切片软件会自己重算朝向），
+    // 但**算出来的体积是错的**，报出去的数字不能就这么算了
     println(
-      "  结论：拓扑是闭合的，可以打印，但上面的问题建议先修",
+      "  结论：网格是闭合的，切片软件多半能打印出来，但数据本身有错 —— 上面那个体积不可信，建议先修",
     )
   } else {
-    println("")
-    println("  结论：直接打印会失败，需要先修复")
+    println("  结论：不影响打印，但上面的问题建议先修")
   }
 }
 
@@ -191,11 +209,13 @@ fn print_findings(check : @stlkit.ValidationReport) -> Unit {
 fn fix_and_save(
   mesh : @stlkit.Mesh,
   before : @stlkit.ValidationReport,
+  winding : @stlkit.WindingReport,
   fix_path : String,
 ) -> Result[Unit, String] {
   if before.is_watertight() &&
     before.degenerate_count == 0 &&
-    before.wrong_normal_count == 0 {
+    before.wrong_normal_count == 0 &&
+    winding.flipped_faces == 0 {
     println("")
     println("这个网格没有问题，不用修。")
     return Ok(())
@@ -217,6 +237,13 @@ fn fix_and_save(
   }
   if fixed.recomputed_normals > 0 {
     println("  重算 \{fixed.recomputed_normals} 个三角形的法线")
+  }
+  if fixed.flipped_faces > 0 {
+    // 把体积的变化也打出来 —— 绕向反了是「看不出来的坏」，
+    // 体积从错变对是它唯一的直接证据
+    println(
+      "  翻转 \{fixed.flipped_faces} 个绕向反了的面（体积从 \{fmt(mesh.volume(), 3)} 修正为 \{fmt(fixed.mesh.volume(), 3)}）",
+    )
   }
   if !fixed.changed() {
     println(

@@ -98,6 +98,10 @@ fn analyze_inner(file_base64 : String) -> Result[Array[String], String] {
   lines.push("非流形边|\{check.non_manifold_edge_count}")
   lines.push("退化面|\{check.degenerate_count}")
   lines.push("错误法线|\{check.wrong_normal_count}")
+  // 绕向和法线是两回事：法线可以按错误的绕向重算成「自洽」的，
+  // 绕向才是几何本身对不对
+  let winding = @stlkit.check_winding_default(mesh)
+  lines.push("绕向反了|\{winding.flipped_faces}")
   Ok(lines)
 }
 
@@ -149,6 +153,8 @@ pub fn fix_report(file_base64 : String) -> String {
       lines.push("删重复面|\{result.removed_duplicates}")
       lines.push("补洞新增|\{result.added_triangles}")
       lines.push("重算法线|\{result.recomputed_normals}")
+      lines.push("翻转绕向|\{result.flipped_faces}")
+      lines.push("修复后体积|\{round3(result.mesh.volume())}")
       lines.push("修复后水密|\{after.is_watertight()}")
       lines.push("修复后边界边|\{after.boundary_edge_count}")
       lines.push("修复后三角形|\{result.mesh.triangle_count()}")

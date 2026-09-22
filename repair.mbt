@@ -25,6 +25,8 @@ pub(all) struct RepairOptions {
   fill_holes : Bool
   /// 重算法线
   recompute_normals : Bool
+  /// 统一绕向。把顶点顺序写反的面翻回来，并保证整体朝外
+  unify_winding : Bool
 }
 
 ///|
@@ -36,6 +38,7 @@ pub fn RepairOptions::default() -> RepairOptions {
     drop_duplicates: true,
     fill_holes: true,
     recompute_normals: true,
+    unify_winding: true,
   }
 }
 
@@ -48,6 +51,8 @@ pub fn RepairOptions::normals_only() -> RepairOptions {
     drop_duplicates: false,
     fill_holes: false,
     recompute_normals: true,
+    // 「只修法线」不该动拓扑，绕向也属于拓扑，一起关掉
+    unify_winding: false,
   }
 }
 
@@ -69,6 +74,8 @@ pub(all) struct RepairResult {
   added_triangles : Int
   /// 重算过法线的三角形数量
   recomputed_normals : Int
+  /// 翻转过的面数（绕向被统一到一致）。不含「整体朝里时全体翻转」那一次
+  flipped_faces : Int
 }
 
 ///|
@@ -77,7 +84,8 @@ pub fn RepairResult::changed(self : RepairResult) -> Bool {
   self.removed_degenerate > 0 ||
   self.removed_duplicates > 0 ||
   self.filled_holes > 0 ||
-  self.recomputed_normals > 0
+  self.recomputed_normals > 0 ||
+  self.flipped_faces > 0
 }
 
 ///|
@@ -138,7 +146,24 @@ pub fn repair(mesh : Mesh, options : RepairOptions) -> RepairResult {
     }
   }
 
-  // 重算法线。放在最后——删面和补洞都会改变拓扑，先算就白算了。
+  // 统一绕向。必须排在重算法线**之前**：绕向一变，法线跟着变，
+  // 反过来做的话刚算好的法线会被绕向翻转作废。
+  //
+  // 这一步是「重算法线」修不了的那部分：顶点顺序写反的面，按它自己
+  // 的顺序重算法线是**自洽的**（法线和绕向一致），但几何还是错的——
+  // 体积求和时它的贡献符号反了。
+  let mut flipped_faces = 0
+  if options.unify_winding {
+    let before = check_winding(Mesh::new(result), options.tolerance)
+    flipped_faces = before.flipped_faces
+    // 整体朝里的网格有符号体积是负的，也要整体翻一遍。那一次不计入
+    // flipped_faces——它是「换个方向看」，不是「这个面写错了」
+    if before.flipped_faces > 0 || before.signed_volume < 0.0 {
+      result = unify_winding(Mesh::new(result), options.tolerance).triangles
+    }
+  }
+
+  // 重算法线。放在最后——删面、补洞、翻转绕向都会改变法线，先算就白算了。
   let mut recomputed = 0
   let final_triangles : Array[Triangle] = []
   for triangle in result {
@@ -161,6 +186,7 @@ pub fn repair(mesh : Mesh, options : RepairOptions) -> RepairResult {
     filled_holes,
     added_triangles,
     recomputed_normals: recomputed,
+    flipped_faces,
   }
 }
 
