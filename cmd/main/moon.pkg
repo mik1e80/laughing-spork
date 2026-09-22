@@ -1,0 +1,8 @@
+import {
+  "moonbitlang/core/argparse",
+  "moonbitlang/x/fs",
+  "moonbitlang/x/sys",
+  "mik1e80/stlkit",
+}
+
+pkgtype(kind: "executable")

@@ -120,6 +120,36 @@ pub fn Mesh::vertices(self : Mesh) -> Array[Vec3] {
 }
 
 ///|
+/// 网格围出的体积。
+///
+/// 把每个三角形的有符号体积加起来。这个算法**要求网格是水密的**：
+/// 闭合曲面上各面的贡献会正负抵消，只留下包围的那块空间；有破洞就
+/// 抵消不干净，算出来的数没有意义。
+///
+/// 所以调用方在报这个数之前，应该先看水密性校验的结果。现在还没有
+/// 校验环节，先直接算；等做校验那一步，报告里会注明这个前提。
+pub fn Mesh::volume(self : Mesh) -> Double {
+  let mut total = 0.0
+  for triangle in self.triangles {
+    total = total + triangle.signed_volume()
+  }
+  total.abs()
+}
+
+///|
+/// 网格的总表面积：所有三角形面积之和。
+///
+/// 这个数不受水密性影响——破洞的网格也能算出「现有这些面的总面积」，
+/// 只是它不等于「这个实体的表面积」。
+pub fn Mesh::surface_area(self : Mesh) -> Double {
+  let mut total = 0.0
+  for triangle in self.triangles {
+    total = total + triangle.area()
+  }
+  total
+}
+
+///|
 /// 轴对齐包围盒。空网格返回 `None`。
 pub fn Mesh::bounding_box(self : Mesh) -> Aabb? {
   match self.triangles {
