@@ -128,3 +128,74 @@ fn round3(value : Double) -> String {
   let rounded = (value * 1000.0).round() / 1000.0
   rounded.to_string()
 }
+
+// ── 修复 ────────────────────────────────────────────────────────────────
+//
+// 又拆成几个函数，理由和前面一样：Result 过不了 JS 边界。
+
+///|
+/// 修一遍网格，返回「每行一个 `字段|值`」的修复报告。失败返回空串。
+///
+/// 报告里除了「做了什么」，还带上修复前后的边界边数——只报「修复完成」
+/// 没法让人判断到底修好了没有，显示「3 → 0」才叫证据。
+pub fn fix_report(file_base64 : String) -> String {
+  match repair_of(file_base64) {
+    Err(_) => ""
+    Ok(result) => {
+      let after = @stlkit.validate_default(result.mesh)
+      let lines : Array[String] = []
+      lines.push("可修复|\{result.changed()}")
+      lines.push("删退化面|\{result.removed_degenerate}")
+      lines.push("删重复面|\{result.removed_duplicates}")
+      lines.push("补洞新增|\{result.added_triangles}")
+      lines.push("重算法线|\{result.recomputed_normals}")
+      lines.push("修复后水密|\{after.is_watertight()}")
+      lines.push("修复后边界边|\{after.boundary_edge_count}")
+      lines.push("修复后三角形|\{result.mesh.triangle_count()}")
+      lines.join("\n")
+    }
+  }
+}
+
+///|
+/// 修复后的模型导出成二进制 STL，再用 base64 编成字符串交给 JS。
+///
+/// 走 base64 是因为 Bytes 过不了 JS 边界；JS 那边解回字节就能做成
+/// 下载链接。失败返回空串。
+pub fn fixed_stl(file_base64 : String) -> String {
+  match repair_of(file_base64) {
+    Err(_) => ""
+    Ok(result) => @base64.encode(@stlkit.write_stl_binary(result.mesh))
+  }
+}
+
+///|
+/// 修复后的模型的预览图。失败返回空串。
+pub fn fixed_preview(file_base64 : String) -> String {
+  match repair_of(file_base64) {
+    Err(_) => ""
+    Ok(result) => @stlkit.render_svg(result.mesh, preview_options())
+  }
+}
+
+///|
+/// 修复失败的原因；成功时返回空串。
+pub fn fix_error(file_base64 : String) -> String {
+  match repair_of(file_base64) {
+    Ok(_) => ""
+    Err(msg) => msg
+  }
+}
+
+///|
+/// 解码 + 解析 + 修复。三个修复相关的导出函数都要走这条链路，
+/// 抽出来免得写三遍。
+fn repair_of(
+  file_base64 : String,
+) -> Result[@stlkit.RepairResult, String] {
+  let mesh = match analyze_mesh(file_base64) {
+    Ok(mesh) => mesh
+    Err(msg) => return Err(msg)
+  }
+  Ok(@stlkit.repair(mesh, @stlkit.RepairOptions::default()))
+}

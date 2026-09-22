@@ -12,7 +12,15 @@ import {
 options(
   link: {
     "js": {
-      "exports": [ "analyze", "analyze_error", "preview" ],
+      "exports": [
+        "analyze",
+        "analyze_error",
+        "preview",
+        "fix_report",
+        "fixed_stl",
+        "fixed_preview",
+        "fix_error",
+      ],
       "format": "iife",
     },
   },

@@ -166,6 +166,135 @@ function renderReport(fields) {
       "注意：网格不闭合，上面那个体积数不可信 —— 体积是靠各面的有符号体积正负抵消算出来的，有破洞就抵消不干净。";
     box.append(note);
   }
+
+  // 有问题才给「修复」按钮。没问题的模型给个按钮反而让人以为要修什么
+  if (problems > 0) {
+    const actions = document.createElement("div");
+    actions.className = "fix-actions";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.id = "fix";
+    button.textContent = "修复这个模型";
+    button.addEventListener("click", runFix);
+    actions.append(button);
+    box.append(actions);
+  }
+}
+
+/// 点「修复」之后干的事：修一遍、把结果对照着显示、更新预览、给下载。
+function runFix() {
+  const button = document.getElementById("fix");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "修复中…";
+  }
+
+  const report = fix_report(currentBase64);
+  if (report === "") {
+    showError(fix_error(currentBase64));
+    return;
+  }
+  const fixed = parseReport(report);
+
+  const box = document.getElementById("report");
+  box.replaceChildren();
+
+  // 做了什么
+  const what = document.createElement("div");
+  what.className = "report-head";
+  const done = [];
+  if (parseInt(fixed["删退化面"] || "0", 10) > 0)
+    done.push(`删掉 ${fixed["删退化面"]} 个退化面`);
+  if (parseInt(fixed["删重复面"] || "0", 10) > 0)
+    done.push(`删掉 ${fixed["删重复面"]} 个重复面`);
+  if (parseInt(fixed["补洞新增"] || "0", 10) > 0)
+    done.push(`补洞：新增 ${fixed["补洞新增"]} 个三角形`);
+  if (parseInt(fixed["重算法线"] || "0", 10) > 0)
+    done.push(`重算 ${fixed["重算法线"]} 个三角形的法线`);
+  if (done.length === 0) done.push("没有可以自动修复的问题");
+
+  const title = document.createElement("div");
+  title.className = "fix-title";
+  title.textContent = "修复完成";
+  what.append(title);
+  for (const line of done) {
+    const row = document.createElement("div");
+    row.className = "fix-line";
+    row.textContent = "· " + line;
+    what.append(row);
+  }
+  box.append(what);
+
+  // 对照：修复前 / 修复后
+  const compare = document.createElement("div");
+  compare.className = "compare";
+  const before = document.createElement("div");
+  before.className = "compare-item compare-before";
+  before.innerHTML =
+    `<span class="compare-label">修复前</span>` +
+    `<span class="compare-value">${currentFields["边界边"]} 条边界边</span>`;
+  const arrow = document.createElement("div");
+  arrow.className = "compare-arrow";
+  arrow.textContent = "→";
+  const after = document.createElement("div");
+  after.className =
+    "compare-item " +
+    (fixed["修复后水密"] === "true" ? "compare-after" : "compare-before");
+  after.innerHTML =
+    `<span class="compare-label">修复后</span>` +
+    `<span class="compare-value">${fixed["修复后边界边"]} 条边界边</span>`;
+  compare.append(before, arrow, after);
+  box.append(compare);
+
+  // 结论
+  const verdict = document.createElement("div");
+  const watertight = fixed["修复后水密"] === "true";
+  verdict.className = watertight ? "verdict verdict-ok" : "verdict verdict-bad";
+  verdict.textContent = watertight
+    ? `现在可以切片打印了（${fixed["修复后三角形"]} 个三角形）`
+    : "还有补不上的洞 —— 洞的形状太复杂，只能手工修";
+  box.append(verdict);
+
+  // 下载
+  const base64 = fixed_stl(currentBase64);
+  if (base64 !== "") {
+    const actions = document.createElement("div");
+    actions.className = "fix-actions";
+    const download = document.createElement("button");
+    download.type = "button";
+    download.textContent = "下载修好的模型（.stl）";
+    download.addEventListener("click", () => {
+      const bytes = base64ToBytes(base64);
+      const blob = new Blob([bytes], { type: "model/stl" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "fixed.stl";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    });
+    actions.append(download);
+    box.append(actions);
+  }
+
+  // 预览换成修好的模型
+  const svg = fixed_preview(currentBase64);
+  if (svg !== "") {
+    previewEl.replaceChildren();
+    previewEl.innerHTML = svg;
+  }
+}
+
+/// 把 base64 解回字节数组。
+function base64ToBytes(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
 
 // ── 主流程 ──────────────────────────────────────────────────────────────
@@ -174,6 +303,11 @@ const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("file");
 const previewEl = document.getElementById("preview");
 const statusEl = document.getElementById("status");
+
+/// 当前这个文件的 base64 和解析出来的报告字段。
+/// 「修复」按钮要用——它的回调触发时，handleFile 的局部变量已经没了。
+let currentBase64 = "";
+let currentFields = {};
 
 /// 显示一条错误，样式跟报告里的问题项一致。
 function showError(message) {
@@ -216,7 +350,9 @@ async function handleFile(file) {
     return;
   }
 
-  renderReport(parseReport(report));
+  currentBase64 = base64;
+  currentFields = parseReport(report);
+  renderReport(currentFields);
 
   const svg = preview(base64);
   previewEl.replaceChildren();

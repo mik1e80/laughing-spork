@@ -292,3 +292,94 @@ code {
   color: var(--bad);
   font-size: 13px;
 }
+
+/* 修复按钮 */
+.fix-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: center;
+}
+
+.fix-actions button {
+  padding: 9px 22px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fix-actions button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.fix-actions button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.fix-actions button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* 修复结果 */
+.fix-title {
+  font-size: 15px;
+  font-weight: 650;
+  margin-bottom: 8px;
+}
+
+.fix-line {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 2px 0;
+}
+
+/* 修复前后对照 */
+.compare {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.compare-item {
+  flex: 1;
+  padding: 10px;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.compare-label {
+  display: block;
+  font-size: 12px;
+  opacity: 0.75;
+  margin-bottom: 3px;
+}
+
+.compare-value {
+  display: block;
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.compare-before {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
+.compare-after {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.compare-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 18px;
+}
