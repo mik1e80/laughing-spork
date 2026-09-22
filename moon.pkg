@@ -1,6 +1,7 @@
 import {
   "moonbitlang/core/string",
   "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/math",
 }
 
 // 库本体只要核心库，没有任何第三方依赖。

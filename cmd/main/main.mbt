@@ -23,6 +23,12 @@ fn command() -> @argparse.Command {
         num_args=@argparse.ValueRange(lower=0, upper=1),
       ),
     ],
+    options=[
+      @argparse.OptionArg(
+        "svg",
+        about="把等轴测预览图导出成 SVG 文件",
+      ),
+    ],
     flags=[@argparse.FlagArg("help", short='h', about="显示这份帮助")],
     disable_help_flag=true,
   )
@@ -54,8 +60,10 @@ fn fmt(value : Double, digits : Int) -> String {
 }
 
 ///|
-/// 处理一个 STL 文件，把报告打印出来。
-fn report(path : String) -> Result[Unit, String] {
+/// 处理一个模型文件，把报告打印出来。
+///
+/// `svg_path` 给了的话，顺便导出一张等轴测预览图。
+fn report(path : String, svg_path : String) -> Result[Unit, String] {
   let data = @fs.read_file_to_bytes(path) catch {
     @fs.IOError(msg) => return Err("读不了文件「\{path}」：\{msg}")
   }
@@ -91,6 +99,16 @@ fn report(path : String) -> Result[Unit, String] {
   println("  表面积    \{fmt(mesh.surface_area(), 3)} mm²")
   println("")
   print_findings(check)
+
+  if svg_path != "" {
+    let svg = @stlkit.render_svg(mesh, @stlkit.PreviewOptions::default())
+    @fs.write_string_to_file(svg_path, svg) catch {
+      @fs.IOError(msg) =>
+        return Err("写不了预览图「\{svg_path}」：\{msg}")
+    }
+    println("")
+    println("  预览图已导出到 \{svg_path}")
+  }
   Ok(())
 }
 
@@ -165,7 +183,11 @@ fn run() -> Result[Unit, String] raise {
       return Ok(())
     }
   }
-  report(path)
+  let svg_path = match matches.values.get("svg") {
+    Some([first, ..]) => first
+    _ => ""
+  }
+  report(path, svg_path)
 }
 
 ///|
