@@ -23,9 +23,7 @@ fn command() -> @argparse.Command {
         num_args=@argparse.ValueRange(lower=0, upper=1),
       ),
     ],
-    flags=[
-      @argparse.FlagArg("help", short='h', about="显示这份帮助"),
-    ],
+    flags=[@argparse.FlagArg("help", short='h', about="显示这份帮助")],
     disable_help_flag=true,
   )
 }
@@ -70,11 +68,14 @@ fn report(path : String) -> Result[Unit, String] {
     Ok(mesh) => mesh
     Err(msg) => return Err(msg)
   }
+  let check = @stlkit.validate_default(mesh)
 
   println(path)
   println("  格式      \{format_name} STL")
-  println("  三角形    \{mesh.triangle_count()}")
-  println("  顶点      \{mesh.vertices().length()} 个（未去重）")
+  println("  三角形    \{mesh.triangle_count()} 个")
+  println(
+    "  顶点      \{check.raw_vertex_count} 个（去重后 \{check.unique_vertex_count} 个）",
+  )
   match mesh.bounding_box() {
     Some(box) => {
       let size = box.size()
@@ -86,7 +87,64 @@ fn report(path : String) -> Result[Unit, String] {
   }
   println("  体积      \{fmt(mesh.volume(), 3)} mm³")
   println("  表面积    \{fmt(mesh.surface_area(), 3)} mm²")
+  println("")
+  print_findings(check)
   Ok(())
+}
+
+///|
+/// 打印校验结果。
+///
+/// 每一条「不通过」都要说清楚**为什么这是问题**，不能只报一个数字。
+/// 看到「有 3 条边界边」的人不知道这意味着什么，看到「切片软件分不清
+/// 哪里是外面」才知道要修。
+fn print_findings(check : @stlkit.ValidationReport) -> Unit {
+  let mut problems = 0
+
+  if check.boundary_edge_count > 0 {
+    problems = problems + 1
+    println(
+      "  ✗ 不是水密网格 —— 有 \{check.boundary_edge_count} 条边只被一个面共用",
+    )
+    println(
+      "    网格上有破洞，切片软件分不清哪里是实心哪里是空的，直接打印会失败",
+    )
+  }
+  if check.non_manifold_edge_count > 0 {
+    problems = problems + 1
+    println(
+      "  ✗ 有 \{check.non_manifold_edge_count} 条边被三个以上的面共用（非流形边）",
+    )
+    println("    这种地方切片软件无法判断该往哪一侧填材料")
+  }
+  if check.degenerate_count > 0 {
+    problems = problems + 1
+    println(
+      "  ✗ 有 \{check.degenerate_count} 个退化三角形（三个点共线，没有面积）",
+    )
+    println("    会让切片软件算出零面积的层，产生碎片")
+  }
+  if check.wrong_normal_count > 0 {
+    problems = problems + 1
+    println(
+      "  ⚠ 有 \{check.wrong_normal_count} 个三角形的法线朝向和顶点顺序不一致",
+    )
+    println(
+      "    多数切片软件会自己重算，但依赖文件里法线的工具会画错",
+    )
+  }
+
+  if problems == 0 {
+    println("  ✓ 水密网格，拓扑上没有阻碍打印的问题")
+  } else if check.is_watertight() {
+    println("")
+    println(
+      "  结论：拓扑是闭合的，可以打印，但上面的问题建议先修",
+    )
+  } else {
+    println("")
+    println("  结论：直接打印会失败，需要先修复")
+  }
 }
 
 ///|
