@@ -60,18 +60,20 @@ fn report(path : String) -> Result[Unit, String] {
     @fs.IOError(msg) => return Err("读不了文件「\{path}」：\{msg}")
   }
   let format_name = match @stlkit.detect_format(data) {
-    @stlkit.Binary => "二进制"
-    @stlkit.Ascii => "ASCII"
-    @stlkit.Unknown => "认不出"
+    @stlkit.Binary => "二进制 STL"
+    @stlkit.Ascii => "ASCII STL"
+    // STL 的两个分支都不认，那就当 OBJ 试。用内容判断而不是看扩展名——
+    // 从别处拷来的文件经常带着错的扩展名。
+    @stlkit.Unknown => "OBJ"
   }
-  let mesh = match @stlkit.parse_stl(data) {
+  let mesh = match @stlkit.parse_mesh(data) {
     Ok(mesh) => mesh
     Err(msg) => return Err(msg)
   }
   let check = @stlkit.validate_default(mesh)
 
   println(path)
-  println("  格式      \{format_name} STL")
+  println("  格式      \{format_name}")
   println("  三角形    \{mesh.triangle_count()} 个")
   println(
     "  顶点      \{check.raw_vertex_count} 个（去重后 \{check.unique_vertex_count} 个）",

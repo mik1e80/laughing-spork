@@ -42,6 +42,21 @@ pub fn parse_stl(data : Bytes) -> Result[Mesh, String] {
 }
 
 ///|
+/// 按内容自动判断格式并解析。STL 和 OBJ 都能读。
+///
+/// 判断靠内容不靠扩展名——从别处拷来的文件经常带着错的扩展名，
+/// 而且二进制 STL 根本没有可靠的文本特征。
+///
+/// 顺序是：先试 STL 的两种形态（判断很确定，靠长度校验和关键字），
+/// 都不认再当 OBJ 试。
+pub fn parse_mesh(data : Bytes) -> Result[Mesh, String] {
+  match detect_format(data) {
+    Unknown => parse_obj(@utf8.decode_lossy(data))
+    _ => parse_stl(data)
+  }
+}
+
+///|
 /// STL 的两种形态。
 pub(all) enum StlFormat {
   Ascii
