@@ -1,0 +1,9 @@
+import {
+  "moonbitlang/core/string",
+  "moonbitlang/core/encoding/utf8",
+}
+
+// 库本体只要核心库，没有任何第三方依赖。
+//
+// 这是刻意的：网格解析和几何分析都是纯算法，不需要外部库。
+// 好处是 native / wasm / js 后端都能跑，没有 FFI 也没有 JS 依赖。
