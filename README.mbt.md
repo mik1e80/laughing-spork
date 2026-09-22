@@ -2,6 +2,8 @@
 
 用 MoonBit 写的 STL / OBJ 三维网格工具链。回答一个问题：**这个模型能不能 3D 打印。**
 
+**在线试用：<https://mik1e80.github.io/stlkit/>**
+
 ![体检报告](web/screenshot.png)
 
 ## 为什么需要它
