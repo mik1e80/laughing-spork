@@ -33,7 +33,13 @@ fn command() -> @argparse.Command {
         about="修复网格并存到指定文件（按后缀选格式：.stl 或 .obj）",
       ),
     ],
-    flags=[@argparse.FlagArg("help", short='h', about="显示这份帮助")],
+    flags=[
+      @argparse.FlagArg(
+        "strict",
+        about="模型有问题时以退出码 1 结束（给 CI 用）",
+      ),
+      @argparse.FlagArg("help", short='h', about="显示这份帮助"),
+    ],
     disable_help_flag=true,
   )
 }
@@ -46,6 +52,7 @@ fn help_text(cmd : @argparse.Command) -> String {
   "  stlkit model.stl                  读一个模型，出体检报告\n" +
   "  stlkit model.stl --fix fixed.stl  修复并存到 fixed.stl\n" +
   "  stlkit model.stl --svg a.svg      顺便导出等轴测预览图\n" +
+  "  stlkit model.stl --strict         模型有问题时退出码为 1（给 CI 用）\n" +
   "  stlkit                            不带参数时打印这份帮助\n" +
   "\n" +
   "格式：二进制 STL、ASCII STL、OBJ 三种都能认，按文件内容判断，\n" +
@@ -71,11 +78,15 @@ fn fmt(value : Double, digits : Int) -> String {
 ///
 /// `svg_path` 给了的话，顺便导出一张等轴测预览图。
 /// `fix_path` 给了的话，修一遍网格存到那里，并把修复前后的校验结果对照着打出来。
+///
+/// 返回值里的 `Bool` 是「这个模型有没有问题」——`--strict` 模式要靠它定退出码。
+/// 分开放而不是塞进错误里，是因为「模型有问题」不是**程序出错**：报告已经
+/// 正常打印出来了，只是结论是负面的。
 fn report(
   path : String,
   svg_path : String,
   fix_path : String,
-) -> Result[Unit, String] {
+) -> Result[Bool, String] {
   let data = @fs.read_file_to_bytes(path) catch {
     @fs.IOError(msg) => return Err("读不了文件「\{path}」：\{msg}")
   }
@@ -110,6 +121,11 @@ fn report(
   println("  体积      \{fmt(mesh.volume(), 3)} mm³")
   println("  表面积    \{fmt(mesh.surface_area(), 3)} mm²")
   let winding = @stlkit.check_winding_default(mesh)
+  let has_problem = !check.is_watertight() ||
+    check.non_manifold_edge_count > 0 ||
+    check.degenerate_count > 0 ||
+    check.wrong_normal_count > 0 ||
+    winding.flipped_faces > 0
 
   println("")
   print_findings(check, winding)
@@ -127,7 +143,7 @@ fn report(
     println("")
     println("  预览图已导出到 \{svg_path}")
   }
-  Ok(())
+  Ok(has_problem)
 }
 
 ///|
@@ -211,14 +227,14 @@ fn fix_and_save(
   before : @stlkit.ValidationReport,
   winding : @stlkit.WindingReport,
   fix_path : String,
-) -> Result[Unit, String] {
+) -> Result[Bool, String] {
   if before.is_watertight() &&
     before.degenerate_count == 0 &&
     before.wrong_normal_count == 0 &&
     winding.flipped_faces == 0 {
     println("")
     println("这个网格没有问题，不用修。")
-    return Ok(())
+    return Ok(false)
   }
 
   let fixed = @stlkit.repair(mesh, @stlkit.RepairOptions::default())
@@ -278,23 +294,23 @@ fn fix_and_save(
       "  已存到 \{fix_path}，但还有 \{after.boundary_edge_count} 条边界边没补上 —— 洞的形状太复杂，自动补洞处理不了",
     )
   }
-  Ok(())
+  Ok(!after.is_watertight())
 }
 
 ///|
 /// 入口逻辑。错误以 `Err` 返回，由 `main` 统一打印并定退出码。
-fn run() -> Result[Unit, String] raise {
+fn run() -> Result[Bool, String] raise {
   let cmd = command()
   let matches = cmd.parse()
   if matches.flags.get("help") == Some(true) {
     println(help_text(cmd))
-    return Ok(())
+    return Ok(false)
   }
   let path = match matches.values.get("file") {
     Some([first, ..]) => first
     _ => {
       println(help_text(cmd))
-      return Ok(())
+      return Ok(false)
     }
   }
   let svg_path = match matches.values.get("svg") {
@@ -305,7 +321,21 @@ fn run() -> Result[Unit, String] raise {
     Some([first, ..]) => first
     _ => ""
   }
-  report(path, svg_path, fix_path)
+  let has_problem = report(path, svg_path, fix_path) catch {
+    err => return Err(err.to_string())
+  }
+  let has_problem = match has_problem {
+    Ok(v) => v
+    Err(msg) => return Err(msg)
+  }
+
+  // --strict：模型有问题就以退出码 1 结束，给 CI 用。
+  // 注意这里不打印「错误：」——报告已经正常打出来了，只是结论是负面的，
+  // 加个错误前缀会让人以为是程序出错。
+  if matches.flags.get("strict") == Some(true) && has_problem {
+    @sys.exit(1)
+  }
+  Ok(has_problem)
 }
 
 ///|
