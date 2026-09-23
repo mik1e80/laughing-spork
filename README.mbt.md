@@ -121,7 +121,7 @@ bash web/build.sh    # 重新编译网页用的 JS
 实测结果：
 
 ```text
-Total tests: 98, passed: 98, failed: 0.
+Total tests: 109, passed: 109, failed: 0.
 ```
 
 `moon check --target all --deny-warn` 零警告。
@@ -149,10 +149,13 @@ Total tests: 98, passed: 98, failed: 0.
 - `stl.mbt` — STL 解析（两种形态）与格式判断
 - `obj.mbt` — OBJ 解析（共享顶点表、多边形三角化、负数编号）
 - `validate.mbt` — 顶点焊接与四项校验
+- `winding.mbt` — 绕向一致性检查与统一
+- `repair.mbt` — 补洞、删退化/重复面、统一绕向、重算法线
+- `writer.mbt` — 导出二进制 / ASCII STL 与 OBJ
 - `preview.mbt` — SVG 等轴测渲染
 - `cmd/main/` — 命令行
 - `web/` — 网页版（含编译产物 `dist/web.js`）
-- `examples/` — 用来演示和测试的模型（完好与破洞各一个）
+- `examples/` — 演示与测试用的模型：完好、破洞、绕向反了、圆环，STL 与 OBJ 各一份
 
 ## 修复
 
