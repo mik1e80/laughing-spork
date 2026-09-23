@@ -47,3 +47,7 @@ bash web/build.sh    # 重新编译网页用的 JS
 库本体**零第三方依赖**，只用 MoonBit 自带的核心库。所以 native / wasm / js 后端都能跑，没有 FFI 也没有 JS 依赖。
 
 网页上也能直接修：体检报告里有问题时会出现「修复这个模型」按钮，点一下就地修好并给出下载。
+
+## 许可证
+
+[Apache License 2.0](LICENSE)

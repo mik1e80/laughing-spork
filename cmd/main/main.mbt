@@ -321,10 +321,7 @@ fn run() -> Result[Bool, String] raise {
     Some([first, ..]) => first
     _ => ""
   }
-  let has_problem = report(path, svg_path, fix_path) catch {
-    err => return Err(err.to_string())
-  }
-  let has_problem = match has_problem {
+  let has_problem = match report(path, svg_path, fix_path) {
     Ok(v) => v
     Err(msg) => return Err(msg)
   }
