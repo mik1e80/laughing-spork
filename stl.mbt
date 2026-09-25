@@ -33,6 +33,8 @@ pub fn parse_stl(data : Bytes) -> Result[Mesh, String] {
       //    继续往下走，最后由坐标解析报出「不是一个合法的数字」，
       //    比在这里抛一个编码错误更有指向性。
       parse_stl_ascii(@utf8.decode_lossy(data))
+    ThreeMF =>
+      Err("这是一个 3MF 文件（ZIP 包），不是 STL——请用 parse_mesh 或 parse_3mf")
     Unknown =>
       Err(
         "认不出这是 ASCII 还是二进制 STL：文件 \{data.length()} 字节，" +
@@ -42,31 +44,42 @@ pub fn parse_stl(data : Bytes) -> Result[Mesh, String] {
 }
 
 ///|
-/// 按内容自动判断格式并解析。STL 和 OBJ 都能读。
+/// 按内容自动判断格式并解析。STL、OBJ、3MF 都能读。
 ///
 /// 判断靠内容不靠扩展名——从别处拷来的文件经常带着错的扩展名，
 /// 而且二进制 STL 根本没有可靠的文本特征。
 ///
-/// 顺序是：先试 STL 的两种形态（判断很确定，靠长度校验和关键字），
+/// 顺序是：3MF（ZIP 魔数）→ STL 的两种形态（靠长度校验和关键字）→
 /// 都不认再当 OBJ 试。
 pub fn parse_mesh(data : Bytes) -> Result[Mesh, String] {
   match detect_format(data) {
+    ThreeMF => parse_3mf(data)
     Unknown => parse_obj(@utf8.decode_lossy(data))
     _ => parse_stl(data)
   }
 }
 
 ///|
-/// STL 的两种形态。
-pub(all) enum StlFormat {
+/// 支持的格式。
+///
+/// `Unknown` 不是「认不出来」，而是「不是 STL，去试试 OBJ」——
+/// 调用方看到它应该走 OBJ 那条路，见 `parse_mesh`。
+pub(all) enum MeshFormat {
   Ascii
   Binary
+  /// 3MF：ZIP 包 + XML，现代切片软件用的格式
+  ThreeMF
   Unknown
 }
 
 ///|
-/// 判断 STL 数据是哪种形态。
-pub fn detect_format(data : Bytes) -> StlFormat {
+/// 判断数据是哪种格式。
+pub fn detect_format(data : Bytes) -> MeshFormat {
+  // 3MF 是个 ZIP 包，按魔数认。放在最前面判断是最省的——
+  // 只看 4 个字节，而下面的二进制 STL 判断要读长度做算术
+  if is_3mf(data) {
+    return ThreeMF
+  }
   // 二进制：长度必须正好是 84 + 数量 × 50
   if data.length() >= 84 {
     let count = read_u32_le(data, 80)

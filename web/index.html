@@ -10,7 +10,7 @@
     <header class="page-head">
       <h1>stlkit</h1>
       <p>
-        把一个 STL 或 OBJ 文件拖进来，看看<strong>它能不能被 3D 打印</strong>。
+        把一个 STL、OBJ 或 3MF 文件拖进来，看看<strong>它能不能被 3D 打印</strong>。
         渲染器能告诉你模型长什么样，但告诉不了你有没有破洞、法线是不是反的——
         那些要靠网格拓扑分析。这个页面就是干这件事的，转换逻辑是 MoonBit 写的
         （<code>mik1e80/stlkit</code>），<code>dist/web.js</code> 是
@@ -26,11 +26,11 @@
         </div>
         <div class="dropzone" id="dropzone">
           <div class="dropzone-hint">
-            <p class="dropzone-big">把 STL / OBJ 文件拖到这里</p>
+            <p class="dropzone-big">把 STL / OBJ / 3MF 文件拖到这里</p>
             <p>或者<button type="button" class="link" id="pick">选一个文件</button></p>
             <p class="dropzone-small">全程在浏览器里完成，文件不会上传到任何地方</p>
           </div>
-          <input type="file" id="file" accept=".stl,.obj" hidden />
+          <input type="file" id="file" accept=".stl,.obj,.3mf" hidden />
         </div>
         <div class="preview" id="preview"></div>
       </section>
@@ -47,8 +47,8 @@
 
     <footer class="page-foot">
       <span>
-        支持二进制 / ASCII STL 与 OBJ（含多边形面）。校验水密性、非流形边、
-        退化面、法线朝向。
+        支持二进制 / ASCII STL、OBJ（含多边形面）与 3MF（含装配体与单位换算）。
+        校验水密性、非流形边、退化面、法线朝向。
       </span>
     </footer>
 

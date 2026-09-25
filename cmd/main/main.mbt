@@ -3,7 +3,7 @@
 // 参数解析交给官方库 moonbitlang/core/argparse，文件读取交给
 // moonbitlang/x/fs，退出码用 moonbitlang/x/sys。
 //
-// 给一个 STL 或 OBJ 文件，打印它的体检报告：几何数据加四项校验结论。
+// 给一个 STL / OBJ / 3MF 文件，打印它的体检报告：几何数据加四项校验结论。
 // 可选 --svg 导出等轴测预览图，--fix 修复并存到指定文件。
 
 ///|
@@ -15,11 +15,11 @@
 fn command() -> @argparse.Command {
   @argparse.Command(
     "stlkit",
-    about="STL / OBJ 三维网格工具链——解析、校验、分析 3D 打印模型",
+    about="STL / OBJ / 3MF 三维网格工具链——解析、校验、分析 3D 打印模型",
     positionals=[
       @argparse.PositionArg(
         "file",
-        about="要处理的模型文件路径（STL 或 OBJ）",
+        about="要处理的模型文件路径（STL / OBJ / 3MF）",
         num_args=@argparse.ValueRange(lower=0, upper=1),
       ),
     ],
@@ -172,6 +172,16 @@ async fn bench(path : String) -> Result[Bool, String] {
   }
   let file_size = data.length()
 
+  // 3MF 是个 ZIP 包，里面那段 deflate 流必须**整个解开**才知道内容，
+  // 没有「边读边算」的余地——这个格式天生不支持流式。
+  // 与其让它跑到后面报一句「全量和流式的结论对不上」，不如在这里说清楚。
+  if @stlkit.detect_format(data) is @stlkit.ThreeMF {
+    return Err(
+      "--bench 比的是流式扫描和全量解析，3MF 是 ZIP 包、必须整个解开才能算，不适用。" +
+      "拿一个 STL 文件来跑，或者直接不带 --bench 看体检报告",
+    )
+  }
+
   // 全量：解析出完整网格，能校验、能修复
   let t0 = @bench.monotonic_clock_start()
   let mesh = match @stlkit.parse_mesh(data) {
@@ -286,7 +296,7 @@ fn help_text(cmd : @argparse.Command) -> String {
   "  stlkit model.stl --bench          跑基准测试，对比三种解析方式的耗时与内存\n" +
   "  stlkit                            不带参数时打印这份帮助\n" +
   "\n" +
-  "格式：二进制 STL、ASCII STL、OBJ 三种都能认，按文件内容判断，\n" +
+  "格式：二进制 STL、ASCII STL、OBJ、3MF 四种都能认，按文件内容判断，\n" +
   "不看扩展名——从别处拷来的文件经常带着错的扩展名。\n"
 }
 
@@ -324,6 +334,7 @@ fn report(
   let format_name = match @stlkit.detect_format(data) {
     @stlkit.Binary => "二进制 STL"
     @stlkit.Ascii => "ASCII STL"
+    @stlkit.ThreeMF => "3MF"
     // STL 的两个分支都不认，那就当 OBJ 试。用内容判断而不是看扩展名——
     // 从别处拷来的文件经常带着错的扩展名。
     @stlkit.Unknown => "OBJ"

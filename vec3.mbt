@@ -82,3 +82,11 @@ pub fn Vec3::normalize(self : Vec3) -> Vec3 {
 pub fn Vec3::is_zero(self : Vec3, tolerance : Double) -> Bool {
   self.length() <= tolerance
 }
+
+///|
+/// 逐分量乘一个系数。
+///
+/// 3MF 的单位换算要用：文件里可能是英寸、厘米，读进来统一乘到毫米。
+pub fn Vec3::scale(self : Vec3, factor : Double) -> Vec3 {
+  { x: self.x * factor, y: self.y * factor, z: self.z * factor, }
+}

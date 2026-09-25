@@ -111,6 +111,7 @@ fn format_name(data : Bytes) -> String {
   match @stlkit.detect_format(data) {
     @stlkit.Binary => "二进制 STL"
     @stlkit.Ascii => "ASCII STL"
+    @stlkit.ThreeMF => "3MF"
     @stlkit.Unknown => "OBJ"
   }
 }

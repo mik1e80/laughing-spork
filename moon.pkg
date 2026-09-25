@@ -2,9 +2,18 @@ import {
   "moonbitlang/core/string",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/math",
+  // 3MF 是个 ZIP 包，里面装的是 XML。这两样都不该自己造：
+  // ZIP 要写 inflate（几百行，还得考虑 zip bomb），XML 的实体、命名空间、
+  // 属性引号也全是坑。两个库都是纯 MoonBit 实现、没有 FFI，
+  // 所以「三端都能跑」这条不受影响——只有「零依赖」变成了「两处依赖」。
+  "hustcer/fzip",
+  "Milky2018/xml",
 }
 
-// 库本体只要核心库，没有任何第三方依赖。
+// 解析 STL / OBJ 和所有几何分析都只用核心库，是纯算法。
 //
-// 这是刻意的：网格解析和几何分析都是纯算法，不需要外部库。
-// 好处是 native / wasm / js 后端都能跑，没有 FFI 也没有 JS 依赖。
+// 3MF 支持引入了上面那两个依赖，选它们的理由：
+//   - hustcer/fzip 自带 zip bomb 解压比检查和不安全路径拒绝，
+//     解析用户传上来的文件需要这两道防线
+//   - Milky2018/xml 是 pull parser，边读边处理，不用把整棵 DOM 建出来
+// 两者都支持 js / wasm / native，所以「没有 FFI、三端都能跑」仍然成立。
