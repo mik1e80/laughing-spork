@@ -98,6 +98,28 @@ C:\Users\MIKE\Documents\GitHub\laughing-spork
 
 **用户的判断**：差异性不只体现在「方向不同」，更体现在**性能和技术深度**上。
 
+### 已完成：第 3 条（新格式）
+
+加了 **3MF** 支持——现代切片软件（PrusaSlicer、Bambu Studio、Cura）实际用的格式，
+STL 的正式替代品。`three_mf.mbt`。
+
+两个要点：
+
+- **3MF 是 ZIP 包**，要解压。用了 `hustcer/fzip`（纯 MoonBit，自带 zip bomb 防护
+  和不安全路径拒绝）和 `Milky2018/xml`（pull parser）。**库不再是零依赖了**，
+  但两个库都没有 FFI，所以「三端都能跑」还成立。代价：网页产物 334 KB → 770 KB
+- **3MF 的顶点是共享的**，拓扑现成。所以它的水密性判断比 STL 可靠——STL 要靠
+  容差猜「哪些三角形共用一个顶点」，3MF 直接写下标
+
+拿 3MF Consortium 官方样例验证过，数据能和数学对上：
+`box.3mf` 体积正好 6000（=10×20×30）；`torus.3mf` 的 V−E+F = 1100−3300+2200 = 0，
+正好是圆环面的欧拉示性数。
+
+**还有个意外收获**：官方样例 `cube_gears.3mf` 自身就有 24 个退化面、53 个反向面、
+24 条非流形边。已排除是解析器的问题（该文件没有任何 `<component>`，所以对象引用和
+矩阵合成代码不参与；其余三个样例全部水密零缺陷）。这个案例写进文档了——
+是「工具为什么有用」最好的例子。
+
 ### 已完成：第 1 条（流式解析）
 
 `stream.mbt` + `cmd/main` 的 `--bench`。95.37 MB / 200 万三角形实测：
@@ -128,7 +150,8 @@ C:\Users\MIKE\Documents\GitHub\laughing-spork
 ```
 stlkit — MoonBit 三维网格工具链
 
-解析    STL（ASCII + 二进制）、OBJ（共享顶点表、多边形面、负数编号）
+解析    STL（ASCII + 二进制）、OBJ（共享顶点表、多边形面、负数编号）、
+        3MF（ZIP + XML、装配体、单位换算）
 校验    水密性、非流形边、退化面、法线朝向、绕向一致性
 分析    体积、表面积、包围盒、尺寸、三角形数、去重顶点数
 流式    分块扫描超大文件，内存不随模型大小增长
@@ -203,12 +226,12 @@ OBJ 同样简单：`v x y z` 是顶点，`f a b c` 是面。
 ### 剩下要做的（按优先级）
 
 1. **差异性说明**——当前最大的障碍，见上面「第三次驳回」一节。审核能不能过就看这个
-2. 提交并推送流式解析这一批改动
-3. **组委会建议的第 3 条**：加 `stlkit convert input.stl output.obj` 子命令
-   （现在导出只能靠 `--fix`，语义不对——没坏的文件不该走「修复」这条路）
-4. 组委会建议的第 2 条（数据清洗与修复）其实已经做完了大半（`repair.mbt`），
+2. 提交并推送 3MF 这一批改动
+3. 组委会建议的第 2 条（数据清洗与修复）其实已经做完了大半（`repair.mbt`），
    缺的是**把它写进答辩材料**，讲清楚做了哪些清洗、怎么验证修好了
-5. 可选：给 ASCII STL 也加上分块扫描（现在只支持二进制，遇到 ASCII 会优雅跳过并说明原因）
+4. 可选：给 ASCII STL 也加上分块扫描（现在只支持二进制，遇到 ASCII 会优雅跳过并说明原因）
+5. 可选：`stlkit convert input.stl output.obj` 子命令（现在导出只能靠 `--fix`，
+   语义不对——没坏的文件不该走「修复」这条路）
 
 ## 已完成（截至 2026-09-25）
 
@@ -220,6 +243,7 @@ OBJ 同样简单：`v x y z` 是顶点，`f a b c` 是面。
 | `mesh.mbt` | `Triangle` / `Aabb` / `Mesh`，法线、面积、有符号体积、包围盒 |
 | `stl.mbt` | STL 解析（ASCII + 二进制）、格式判断、CRLF 处理 |
 | `obj.mbt` | OBJ 解析（共享顶点表、多边形扇形三角化、负数编号） |
+| `three_mf.mbt` | **3MF 解析**：解 ZIP、解 XML、装配体与变换矩阵、单位换算 |
 | `validate.mbt` | 顶点焊接与四项校验，容差 1e-6 mm |
 | `winding.mbt` | 绕向一致性检查（BFS）与统一 |
 | `repair.mbt` | 补洞、删退化/重复面、统一绕向、重算法线 |
@@ -237,8 +261,15 @@ OBJ 同样简单：`v x y z` 是顶点，`f a b c` 是面。
 
 ## 技术约定
 
-**库本体零第三方依赖**（只有 `moonbitlang/core`），这样 native/wasm/js 都能跑。
-CLI 才引入 `argparse` / `x/fs` / `x/sys`。
+**解析 STL / OBJ 和全部几何分析只用 `moonbitlang/core`**，没有第三方依赖。
+
+**3MF 引入两个库**：`hustcer/fzip`（解 ZIP）和 `Milky2018/xml`（解 XML）。
+两个都是纯 MoonBit、没有 FFI，所以 native / wasm / js 三端都能跑这条仍然成立。
+选 fzip 是因为它自带 zip bomb 解压比检查和不安全路径拒绝——解析陌生人传上来的
+文件必须要有这两道防线。
+
+CLI 另外引入 `argparse` / `x/fs` / `x/sys` / `moonbitlang/async`（后者只有
+`--bench` 的分块读用）。
 
 **法线一律自己算**，不用文件里写的——很多导出器写的法线是错的甚至是 0 0 0。
 `Triangle::computed_normal()` 负责这个。
@@ -278,6 +309,17 @@ CLI 才引入 `argparse` / `x/fs` / `x/sys`。
 - **match 分支里写多条语句要加 `{ }` 块**
 - **在循环里写嵌套的结构体字面量会报 `ambiguous_block`**，抽成命名函数最省事
 - **CLI 入口写成 `async fn main`**：一旦有任何一个分支要 await，整个入口就得是异步的
+- **定长数组的类型写法是 `FixedArray[T]`，不是 `[T]`**。`[1.0, 2.0]` 是构造表达式，
+  但 `x : [Double]` 当类型写会报「unexpected token `[`, you may expect type」
+- **`Bytes::from_fixedarray` 已废弃**，用 `Bytes::from_array`（它收 `ArrayView`，
+  FixedArray 能直接传）
+- **`catch` 块里不能直接写语句**，要有模式：`catch { _ => break }`，
+  写成 `catch { break }` 会报「Expecting pattern matching case」
+- **suberror 的具名字段可以解构**：`catch { @fzip.FzipError(message~, ..) => ... }`。
+  另外这个错误类型**没有实现 `Show`**，不能直接 `\{err}`
+- **`Milky2018/xml` 的 `read_event()` 返回的是 `Event` 结构体不是枚举**，
+  要 `match event.kind { ... }`。`XmlElement` 是 `pub struct`，字段在包外**只读**
+  （`element.name` 能读），但不能构造
 
 ## 验证手段
 
