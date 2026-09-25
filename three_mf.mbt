@@ -124,6 +124,13 @@ fn rels_model_target(xml : String) -> String? {
     }
     let element = match event.kind {
       @xml.EventKind::Start(e) | @xml.EventKind::Empty(e) => e
+      // **必须在这里停下来。**
+      //
+      // 读到文件末尾之后，`read_event` 会一直返回 `Eof` 而不会抛错。
+      // 少了这个分支，一个「关系表是合法 XML、但里面没有 3dmodel 关系」的包
+      // 就会在这里无限空转——CPU 跑满，命令行和网页都卡死，而且永远等不到报错。
+      // 现实中把 .docx 改名成 .3mf 就是这个样子。
+      @xml.EventKind::Eof => break
       _ => continue
     }
     if local_name(element.name) != "Relationship" {
@@ -136,9 +143,10 @@ fn rels_model_target(xml : String) -> String? {
     if !kind.has_suffix("/3dmodel") {
       continue
     }
-    found = match element.get("Target") {
-      Some(t) => Some(normalize_part_path(t))
-      None => None
+    // 关系对上了但没有 Target——文件不规范，不算数，继续往后找
+    match element.get("Target") {
+      Some(t) => found = Some(normalize_part_path(t))
+      None => ()
     }
   }
   found
@@ -164,14 +172,33 @@ fn find_entry(
   entries : Array[(String, FixedArray[Byte])],
   name : String,
 ) -> FixedArray[Byte]? {
-  let want = name.to_lower()
+  let want = normalize_entry_name(name)
   for entry in entries {
     let (entry_name, bytes) = entry
-    if entry_name.to_lower() == want {
+    if normalize_entry_name(entry_name) == want {
       return Some(bytes)
     }
   }
   None
+}
+
+///|
+/// 把压缩包里的条目名规范化，好用来比对。
+///
+/// 两件事：
+///
+/// 1. **转小写**——OPC 的部件名不区分大小写。
+/// 2. **反斜杠换成正斜杠**——ZIP 规范要求条目名用正斜杠，但 Windows 上一些
+///    打包工具（比如 PowerShell 的 `Compress-Archive`）会写成反斜杠。
+///    不归一化的话，一个结构完好的包会因为 `3D\3dmodel.model` 匹配不上
+///    `3D/3dmodel.model` 而被判成「没有模型部件」——报错完全指错了方向。
+fn normalize_entry_name(name : String) -> String {
+  let lower = name.to_lower()
+  if lower.contains("\\") {
+    lower.replace_all(old="\\", new="/")
+  } else {
+    lower
+  }
 }
 
 ///|
@@ -186,6 +213,49 @@ fn local_name(name : String) -> String {
     last = part
   }
   last.to_owned()
+}
+
+///|
+/// 取命名空间前缀。没有冒号就是空串（默认命名空间）。
+fn prefix_of(name : String) -> String {
+  match name.find(":") {
+    Some(i) => name[:i].to_owned()
+    None => ""
+  }
+}
+
+///|
+/// 3MF 核心命名空间的识别特征。
+///
+/// 不写死完整 URI 是因为后面可能跟版本号（规范的命名空间是
+/// `http://schemas.microsoft.com/3dmanufacturing/core/2015/02`）。
+const CORE_NS_MARK : String = "3dmanufacturing/core"
+
+///|
+/// 从根元素的命名空间声明里找出**核心命名空间用的是哪个前缀**。
+///
+/// 为什么需要这个：只看本地名会把别的命名空间的同名元素也认成核心元素。
+/// 最现实的例子是 3MF 的切片扩展——里面有 `<s:vertices>` / `<s:vertex>`，
+/// 那是**二维**顶点，规范只定义了 x 和 y，**没有 z**。不区分命名空间的话
+/// 它会被当成核心的三维顶点，报一句「少了坐标属性 z」，
+/// 结果是一份完全合法的文件整个解析不了。
+///
+/// 返回 `None` 表示根元素上没有声明核心命名空间，那就退回老规矩：
+/// 不带前缀的元素都算核心的。
+fn detect_core_prefix(element : @xml.XmlElement) -> String? {
+  for attr in element.attributes {
+    if !attr.value.contains(CORE_NS_MARK) {
+      continue
+    }
+    // 默认命名空间写成 xmlns="..."，前缀是空串
+    if attr.name == "xmlns" {
+      return Some("")
+    }
+    if attr.name.has_prefix("xmlns:") {
+      return Some(attr.name[6:].to_owned())
+    }
+  }
+  None
 }
 
 ///|
@@ -205,6 +275,9 @@ fn parse_model_xml(xml : String) -> Result[Mesh, String] {
   // 一个以英寸建模的模型体积会差 25.4³ ≈ 16387 倍
   let mut unit_scale = 1.0
 
+  // 核心命名空间用的是哪个前缀。`None` = 还没见到根元素
+  let mut core_prefix : String? = None
+
   // 当前正在攒的对象
   let mut cur_id : Int? = None
   let mut cur_vertices : Array[Vec3] = []
@@ -216,13 +289,17 @@ fn parse_model_xml(xml : String) -> Result[Mesh, String] {
       err =>
         return Err("3MF 的模型 XML 解析失败（第 \{reader.line()} 行）：\{err}")
     }
-    let (element, self_closing) = match event.kind {
-      @xml.EventKind::Start(e) => (e, false)
-      @xml.EventKind::Empty(e) => (e, true)
+    let element = match event.kind {
+      @xml.EventKind::Start(e) | @xml.EventKind::Empty(e) => e
       @xml.EventKind::End(name) => {
         // 对象在这里收尾。但自闭合的 `<object/>` 不会走到这——
-        // 那种情况由下一次 object 开始时的 flush 兜住
-        if local_name(name) == "object" {
+        // 那种情况由下一次 object 开始时的 flush 兜住。
+        // 同样要认命名空间：`</s:object>` 不是核心的 object
+        let end_is_core = match core_prefix {
+          Some(p) => prefix_of(name) == p
+          None => prefix_of(name) == ""
+        }
+        if end_is_core && local_name(name) == "object" {
           flush_object(objects, cur_id, cur_vertices, cur_triangles, cur_components)
           cur_id = None
           cur_vertices = []
@@ -234,6 +311,26 @@ fn parse_model_xml(xml : String) -> Result[Mesh, String] {
       _ => continue
     }
     let tag = local_name(element.name)
+
+    if tag == "model" {
+      // 根元素上声明了核心命名空间，记下它用的前缀
+      core_prefix = detect_core_prefix(element)
+    }
+
+    // 只处理核心命名空间的元素。
+    //
+    // 带别的前缀（比如切片扩展的 `s:`）一律跳过——它们的本地名可能和核心元素
+    // 撞车，但语义完全不同。最典型的是 `<s:vertex>`：那是**二维**顶点，
+    // 只有 x 和 y，当成三维顶点就会报「少了坐标属性 z」，整份合法文件都读不了。
+    let prefix = prefix_of(element.name)
+    let is_core = match core_prefix {
+      Some(p) => prefix == p
+      // 根元素上没声明命名空间，退回老规矩：不带前缀的当核心元素
+      None => prefix == ""
+    }
+    if !is_core {
+      continue
+    }
 
     if tag == "model" {
       // 单位：micron / millimeter / centimeter / inch / foot / meter
@@ -299,7 +396,6 @@ fn parse_model_xml(xml : String) -> Result[Mesh, String] {
       }
       build.push((id, tf))
     }
-    let _ = self_closing
   }
   // 最后一个对象
   flush_object(objects, cur_id, cur_vertices, cur_triangles, cur_components)
@@ -326,7 +422,14 @@ fn parse_model_xml(xml : String) -> Result[Mesh, String] {
   }
 
   if triangles.length() == 0 {
-    return Err("这个 3MF 的 build 引用的对象里没有网格数据")
+    // 措辞要说清楚两种可能，别让人以为文件坏了。
+    // 3MF 的 Beam Lattice 扩展明确规定：挂了 beamlattice 的 mesh
+    // **可以一个三角形都没有**（规范原话：MAY consist of no triangles），
+    // 几何全写在扩展元素里。这种文件是合法的，只是本工具处理不了
+    return Err(
+      "这个 3MF 的 build 引用的对象里没有三角形——可能是空对象，" +
+      "也可能是几何写在扩展元素里的对象（比如 beam lattice，本工具只处理三角网格）",
+    )
   }
   Ok(Mesh::new(scale_mesh(triangles, unit_scale)))
 }
@@ -509,6 +612,13 @@ fn compose_transform(first : FixedArray[Double], second : FixedArray[Double]) ->
 
 ///|
 /// 读一个整数属性。
+///
+/// `parse_double` 收的比整数字面量宽得多：`1.5`、`1e3`、`2_0`、`nan`、`inf`
+/// 它都认。所以这里必须自己把关——不把关的话 `<triangle v1="nan" .../>` 会
+/// 静默变成下标 0，用户拿到一个由错顶点拼出来的网格，而且毫无提示。
+///
+/// 注意 `inf` 要单独判：`inf.round()` 还是 `inf`，光比 `value != value.round()`
+/// 拦不住它。
 fn attribute_int(
   element : @xml.XmlElement,
   name : String,
@@ -519,6 +629,9 @@ fn attribute_int(
       let value = @string.parse_double(raw) catch {
         _ => return Err("3MF 的 <\{tag}> 里 \{name}=\"\{raw}\" 不是个整数")
       }
+      if value.is_nan() || value.is_inf() || value != value.round() {
+        return Err("3MF 的 <\{tag}> 里 \{name}=\"\{raw}\" 不是个整数")
+      }
       Ok(value.to_int())
     }
     None => Err("3MF 的 <\{tag}> 少了一个必需的属性 \{name}")
@@ -527,6 +640,9 @@ fn attribute_int(
 
 ///|
 /// 读 x / y / z 三个坐标属性。
+///
+/// 坐标也要查有限性：`x="inf"` 或 `x="nan"` 会让包围盒和体积算出一堆垃圾，
+/// 而且从报告上看不出是文件坏了——数字就是难看点而已，不如直接报错。
 fn attribute_vec3(element : @xml.XmlElement) -> Result[Vec3, String] {
   let out : Array[Double] = []
   for name in ["x", "y", "z"] {
@@ -536,6 +652,9 @@ fn attribute_vec3(element : @xml.XmlElement) -> Result[Vec3, String] {
     }
     let value = @string.parse_double(raw) catch {
       _ => return Err("3MF 的 <vertex> 里 \{name}=\"\{raw}\" 不是个数字")
+    }
+    if value.is_nan() || value.is_inf() {
+      return Err("3MF 的 <vertex> 里 \{name}=\"\{raw}\" 不是个有限的数字")
     }
     out.push(value)
   }

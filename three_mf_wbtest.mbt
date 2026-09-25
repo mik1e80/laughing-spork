@@ -33,9 +33,15 @@ fn rels_xml() -> String {
 ///|
 /// 把一段模型 XML 打包成一个 3MF。
 fn mf_bytes(model_xml : String) -> Bytes {
+  mf_bytes_with_rels(model_xml, rels_xml())
+}
+
+///|
+/// 同上，但关系表换成自定义的。用来构造各种「关系表不对劲」的包。
+fn mf_bytes_with_rels(model_xml : String, rels : String) -> Bytes {
   let files : Array[(String, FixedArray[Byte])] = [
     ("[Content_Types].xml", @utf8.encode(content_types_xml()).to_fixedarray()),
-    ("_rels/.rels", @utf8.encode(rels_xml()).to_fixedarray()),
+    ("_rels/.rels", @utf8.encode(rels).to_fixedarray()),
     ("3D/3dmodel.model", @utf8.encode(model_xml).to_fixedarray()),
   ]
   Bytes::from_array(@fzip.zip_sync(files))
@@ -383,11 +389,205 @@ test "ZIP 里没有模型部件要报错" {
 }
 
 ///|
+test "关系表合法但没有 3dmodel 关系：要能退出，并退回按文件名找" {
+  // 这是最容易挂死的一种包：`_rels/.rels` 存在、是合法 XML，
+  // 但里面没有任何 Type 以 /3dmodel 结尾的关系。
+  // 现实中长的就是「把 .docx 改名成 .3mf」的样子。
+  //
+  // 解析器必须**退出**这个查找循环，再退回去按 .model 文件名找。
+  // 曾经这里是个死循环：读不到匹配的关系就一直读，而读完了还接着读，
+  // 表现是 CPU 空转、命令行卡死、网页卡死标签页，永远等不到报错。
+  let rels = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+    "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+    "<Relationship Target=\"/word/document.xml\" Id=\"rId1\" Type=\"" +
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\"/>" +
+    "</Relationships>"
+  let data = mf_bytes_with_rels(
+    cube_model_xml("millimeter", "<item objectid=\"1\"/>"),
+    rels,
+  )
+  let mesh = match parse_3mf(data) {
+    Ok(m) => m
+    Err(msg) => fail("应该退回按文件名找到模型部件，却报错：\{msg}")
+  }
+  assert_eq(mesh.triangle_count(), 12)
+}
+
+///|
+test "关系表里 3dmodel 那条缺 Target：也不能挂死" {
+  // 另一条死循环路径：Type 对得上，但没有 Target 属性。
+  // 修的时候是把「找不到就继续找」改成「找不到也要能结束」，
+  // 两条路径都得盯住
+  let rels = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+    "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+    "<Relationship Id=\"rel0\" Type=\"" +
+    "http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel\"/>" +
+    "</Relationships>"
+  let data = mf_bytes_with_rels(
+    cube_model_xml("millimeter", "<item objectid=\"1\"/>"),
+    rels,
+  )
+  let mesh = match parse_3mf(data) {
+    Ok(m) => m
+    Err(msg) => fail("缺 Target 时应该退回按文件名找，却报错：\{msg}")
+  }
+  assert_eq(mesh.triangle_count(), 12)
+}
+
+// ── 压缩包条目名 ────────────────────────────────────────────────────────
+
+///|
+test "压缩包里用反斜杠分隔路径也能认" {
+  // ZIP 规范要求条目名用正斜杠，但 Windows 上一些打包工具
+  // （比如 PowerShell 的 Compress-Archive）会写成反斜杠。
+  // 不归一化的话，一个结构完好的包会因为 `3D\3dmodel.model` 匹配不上
+  // `3D/3dmodel.model` 而被判成「没有模型部件」——报错完全指错了方向
+  let files : Array[(String, FixedArray[Byte])] = [
+    ("_rels\\.rels", @utf8.encode(rels_xml()).to_fixedarray()),
+    (
+      "3D\\3dmodel.model",
+      @utf8
+        .encode(cube_model_xml("millimeter", "<item objectid=\"1\"/>"))
+        .to_fixedarray(),
+    ),
+  ]
+  let mesh = match parse_3mf(Bytes::from_array(@fzip.zip_sync(files))) {
+    Ok(m) => m
+    Err(msg) => fail("反斜杠路径不该导致失败：\{msg}")
+  }
+  assert_eq(mesh.triangle_count(), 12)
+}
+
+// ── 命名空间 ────────────────────────────────────────────────────────────
+
+///|
+test "切片扩展里的二维顶点不会被当成三维顶点" {
+  // 3MF 的切片扩展里有 `<s:vertices><s:vertex x=".." y=".."/></s:vertices>`，
+  // 那是**二维**顶点，规范只定义了 x 和 y，**没有 z**。
+  //
+  // 只看本地名的话，`<s:vertex>` 会被当成核心的三维 `<vertex>`，
+  // 走进解析坐标那条路，报一句「少了坐标属性 z」——
+  // 于是一份完全合法的文件整个读不了
+  let xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+    "<model unit=\"millimeter\" " +
+    "xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\" " +
+    "xmlns:s=\"http://schemas.microsoft.com/3dmanufacturing/slice/2015/07\">" +
+    "<resources>" +
+    "<s:slicestack id=\"10\" ztop=\"1\">" +
+    "<s:slice ztop=\"1\"><s:vertices>" +
+    "<s:vertex x=\"0\" y=\"0\"/><s:vertex x=\"1\" y=\"0\"/><s:vertex x=\"0\" y=\"1\"/>" +
+    "</s:vertices></s:slice></s:slicestack>" +
+    "<object id=\"1\" type=\"model\"><mesh><vertices>" +
+    cube_vertices_xml() +
+    "</vertices><triangles>" +
+    cube_triangles_xml() +
+    "</triangles></mesh></object></resources>" +
+    "<build><item objectid=\"1\"/></build></model>"
+  let mesh = match parse_3mf(mf_bytes(xml)) {
+    Ok(m) => m
+    Err(msg) => fail("合法的切片文件不该解析失败：\{msg}")
+  }
+  // 切片那堆顶点一个都不该混进来
+  assert_eq(mesh.triangle_count(), 12)
+  assert_eq(validate_default(mesh).unique_vertex_count, 8)
+}
+
+// ── 数值把关 ────────────────────────────────────────────────────────────
+
+///|
+test "非整数的顶点下标要报错，不能静默取整" {
+  // parse_double 收得比整数字面量宽得多。不把关的话 `v1="nan"` 会静默
+  // 变成下标 0，用户拿到一个由错顶点拼出来的网格，而且毫无提示
+  for bad in ["nan", "inf", "1.5", "-2.9"] {
+    let xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+      "<model unit=\"millimeter\" xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\">" +
+      "<resources><object id=\"1\" type=\"model\"><mesh><vertices>" +
+      cube_vertices_xml() +
+      "</vertices><triangles><triangle v1=\"" +
+      bad +
+      "\" v2=\"1\" v3=\"2\"/></triangles></mesh></object></resources>" +
+      "<build><item objectid=\"1\"/></build></model>"
+    match parse_3mf(mf_bytes(xml)) {
+      Ok(_) => fail("下标「\{bad}」不该被接受")
+      Err(msg) => assert_true(msg.contains("不是个整数"))
+    }
+  }
+}
+
+///|
+test "非整数的对象 id 要报错" {
+  let xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+    "<model unit=\"millimeter\" xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\">" +
+    "<resources><object id=\"1.7\" type=\"model\"><mesh><vertices>" +
+    cube_vertices_xml() +
+    "</vertices><triangles>" +
+    cube_triangles_xml() +
+    "</triangles></mesh></object></resources>" +
+    "<build><item objectid=\"1\"/></build></model>"
+  match parse_3mf(mf_bytes(xml)) {
+    Ok(_) => fail("小数 id 不该被接受")
+    Err(msg) => assert_true(msg.contains("不是个整数"))
+  }
+}
+
+///|
+test "无穷大和 NaN 的坐标要报错" {
+  // 放进网格里，包围盒和体积会变成一堆垃圾，而且从报告上看不出是文件坏了
+  for bad in ["inf", "nan", "-inf"] {
+    let xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+      "<model unit=\"millimeter\" xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\">" +
+      "<resources><object id=\"1\" type=\"model\"><mesh><vertices>" +
+      "<vertex x=\"" +
+      bad +
+      "\" y=\"0\" z=\"0\"/><vertex x=\"1\" y=\"0\" z=\"0\"/>" +
+      "<vertex x=\"0\" y=\"1\" z=\"0\"/></vertices>" +
+      "<triangles><triangle v1=\"0\" v2=\"1\" v3=\"2\"/></triangles>" +
+      "</mesh></object></resources>" +
+      "<build><item objectid=\"1\"/></build></model>"
+    match parse_3mf(mf_bytes(xml)) {
+      Ok(_) => fail("坐标「\{bad}」不该被接受")
+      Err(msg) => assert_true(msg.contains("有限的数字"))
+    }
+  }
+}
+
+// ── 报错措辞 ────────────────────────────────────────────────────────────
+
+///|
+test "beam lattice 的报错要说清是不支持，而不是说文件坏了" {
+  // Beam Lattice 扩展规定：挂了 beamlattice 的 mesh **可以一个三角形都没有**
+  // （规范原话 MAY consist of no triangles），几何全写在扩展元素里。
+  // 这种文件是合法的，只是本工具处理不了。
+  // 报错不能写成「没有网格数据」——那听起来像文件坏了，会把人带偏
+  let xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+    "<model unit=\"millimeter\" " +
+    "xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\" " +
+    "xmlns:b=\"http://schemas.microsoft.com/3dmanufacturing/beamlattice/2017/02\">" +
+    "<resources><object id=\"1\" type=\"model\"><mesh><vertices>" +
+    cube_vertices_xml() +
+    "</vertices><b:beamlattice radius=\"1\" minlength=\"0.1\"><b:beams>" +
+    "<b:beam v1=\"0\" v2=\"1\"/></b:beams></b:beamlattice>" +
+    "</mesh></object></resources>" +
+    "<build><item objectid=\"1\"/></build></model>"
+  match parse_3mf(mf_bytes(xml)) {
+    Ok(_) => fail("只处理三角网格，不该成功")
+    Err(msg) => assert_true(msg.contains("beam lattice"))
+  }
+}
+
+///|
 test "XML 坏掉要报错并带上行号" {
-  let data = mf_bytes("<model><resources></model>")
-  match parse_3mf(data) {
+  // 故意写成多行，第 3 行的标签对不上——行号要是报错了，
+  // 拿这个信息去定位文件里哪出问题就成了误导
+  let xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+    "<model unit=\"millimeter\">\n" +
+    "<resources></model>"
+  match parse_3mf(mf_bytes(xml)) {
     Ok(_) => fail("坏的 XML 不该成功")
-    Err(msg) => assert_true(msg.contains("XML"))
+    Err(msg) => {
+      assert_true(msg.contains("XML"))
+      assert_true(msg.contains("第 3 行"))
+    }
   }
 }
 
