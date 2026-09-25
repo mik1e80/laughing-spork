@@ -69,30 +69,77 @@ hzfhzf89/gltf-tools   glTF/GLB 读取校验
 
 → **有条件放行，关键词是「做得很完善」。项目必须做得足够完整。**
 
-## ⚠️ 仓库名要改
+## 仓库名
 
-仓库现在叫 `laughing-spork`（GitHub 新建仓库时自动生成的随机名）。**必须在提交前改掉**，
-否则评委一眼看出「这名字是系统给的，他没起」。
+GitHub 仓库已经改名为 **`mik1e80/stlkit`**（符合生态命名惯例：`dbc-toolkit`、
+`nmea-toolkit`、`moonwavkit`）。远端已经指过去了，`moon.mod` 里的 repository 也是这个。
 
-**建议改成 `stlkit`**（符合生态命名惯例：`dbc-toolkit`、`nmea-toolkit`、`moonwavkit`）。
+**本地目录名还叫 `laughing-spork`**（建仓库时 GitHub 生成的随机名）——不影响评审，
+评委看的是 GitHub 上的仓库名。本地路径：
 
-改法：仓库页面 → Settings → Repository name → 改成 `stlkit` → Rename。
-改完记得同步本地 remote 和 `moon.mod` 里的 `repository`。
+```
+C:\Users\MIKE\Documents\GitHub\laughing-spork
+```
 
-## 要做什么
+## 第三次驳回（当前要解决的问题）
+
+前两次驳回都已经处理掉了（选题太窄 → 换方向；缺 LICENSE → 补了 Apache 2.0）。
+**现在的障碍是第三条**：
+
+> 项目核心能力与 MoonBit 现有 mizchi/three / mizchi/mesh3d 库存存在较明显重叠，
+> 需要补充有足够价值的差异性说明。
+
+组委会同时给了 4 条改进建议：
+
+1. **流式解析**（Streaming Parsing）
+2. 数据清洗与修复
+3. 新格式或 CLI 子命令
+4. 算法优化
+
+**用户的判断**：差异性不只体现在「方向不同」，更体现在**性能和技术深度**上。
+
+### 已完成：第 1 条（流式解析）
+
+`stream.mbt` + `cmd/main` 的 `--bench`。95.37 MB / 200 万三角形实测：
+**内存省 84.3%（293.73 MB → 46.1 MB），快 5.4 倍**。每三角形内存 154 字节 → 24 字节。
+细节见 `README.mbt.md` 的「超大模型：流式解析」一节。
+
+### 差异性论据（写答辩材料时用）
+
+去看了源码，不是只看注册表描述：
+
+- **`mizchi/three-mbt`**：STL 加载是 `extern "js"` —— 把解析整个丢给 JavaScript 的
+  three.js 做，MoonBit 侧没有一行解析代码。`preferred_target: "js"`，4 个版本全在
+  2026-09-08 上午发布，最后推送 2026-09-10。**离开浏览器跑不了。**
+- **`mizchi/mesh3d`**：确实有 406 行纯 MoonBit OBJ 解析器（这点之前漏看了，被用户纠正过），
+  但它**展开顶点、不保留拓扑**，索引越界时静默返回 `0.0`，返回 `Mesh3D` 而不是 `Result`。
+  它是 kagura 渲染管线的一部分，**目标是画出来，不做校验**。
+- 另外扫了 15 个候选包（PicoGK、meshopt_mbt、moonbit-gltf-tools、kagura_*、shapefile、
+  bvhkit、fiducial_marker 等）。结论：**没有任何 MoonBit 包做三角网格质量验证**。
+
+最接近的四类，逐个说明差在哪：
+`mesh3d`（有 OBJ 解析但无拓扑）、`meshopt_mbt`（只做渲染性能分析）、
+`gltf-tools`（只做渲染资产分析）、`picogk`（同在 3D 打印领域，但走体素不是网格）。
+
+**一句话**：它们回答「模型长什么样」，stlkit 回答「模型能不能打印」。
+
+## 功能范围
 
 ```
 stlkit — MoonBit 三维网格工具链
 
-解析    STL（ASCII + 二进制两种）、OBJ（顶点 / 法线 / 分组）
-校验    水密性（每条边恰好被两个面共用）、法线一致性、退化面、
-        重复顶点、非流形边、体积符号
-修复    焊接重复顶点、重算法线、定位破洞位置
-分析    体积、表面积、包围盒、尺寸、三角形数、打印材料与时间估算
-转换    STL ⇄ OBJ、导出点云 / 线框
-预览    SVG 等轴测图、终端 ASCII 图
-形态    库 + CLI + 网页（拖拽上传）
+解析    STL（ASCII + 二进制）、OBJ（共享顶点表、多边形面、负数编号）
+校验    水密性、非流形边、退化面、法线朝向、绕向一致性
+分析    体积、表面积、包围盒、尺寸、三角形数、去重顶点数
+流式    分块扫描超大文件，内存不随模型大小增长
+修复    补洞、删退化面、删重复面、统一绕向、重算法线
+预览    SVG 等轴测图（浏览器里直接看）
+形态    库 + CLI + 网页
 ```
+
+**原计划里被砍掉的**：终端 ASCII 预览（SVG 已经够用，且在网页上更好看）、
+打印材料/时间估算（和「能不能打印」这个核心问题关系不大）、导出点云/线框。
+砍掉是有意的——**做完整不等于把列过的都做一遍**。
 
 ### 目标效果
 
@@ -145,29 +192,48 @@ OBJ 同样简单：`v x y z` 是顶点，`f a b c` 是面。
 
 没有矩阵、没有微积分、没有坐标变换。**"能不能打印"的核心就是数每条边被几个面用了。**
 
-## 8 天计划（截止 2026-09-30）
+## 计划与进度（截止 2026-09-30，今天 2026-09-25）
 
-| 天 | 做什么 | 做完能看到 |
-|---|---|---|
-| 1 | 骨架 + STL 解析（ASCII + 二进制） | 喂 STL 进去能读出三角形 |
-| 2 | OBJ 解析 + 网格数据结构 | 两种格式都能读 |
-| 3 | 校验（水密性 / 法线 / 退化面 / 重复顶点） | **能回答"能不能打印"** |
-| 4 | 分析（体积 / 表面积 / 包围盒 / 材料估算） | 完整体检报告 |
-| 5 | 修复 + 格式转换 | 能修问题、能换格式 |
-| 6 | SVG 等轴测预览 + 终端 ASCII 预览 | 看得见模型 |
-| 7 | CLI 完善 + 网页（拖拽上传） | 三种形态齐全 |
-| 8 | 测试、文档、打磨 | 提交 |
+原定的 8 天计划（骨架 → 解析 → 校验 → 分析 → 修复 → 预览 → CLI/网页 → 打磨）
+**已经全部做完了**，还比原计划多做了绕向一致性检查、网格修复、网页版和流式解析。
 
-**每天 2-3 个提交，总数要超过 10 个**（评审要求「≥10 个中文 commit 展示演进，每步可构建」）。
+**评审要求：「≥10 个中文 commit 展示演进，每步可构建」。**
+提交信息用中文，每个提交都要能编译通过。
 
-**提交信息用中文，每个提交都要能编译通过。**
+### 剩下要做的（按优先级）
 
-## 已完成
+1. **差异性说明**——当前最大的障碍，见上面「第三次驳回」一节。审核能不能过就看这个
+2. 提交并推送流式解析这一批改动
+3. **组委会建议的第 3 条**：加 `stlkit convert input.stl output.obj` 子命令
+   （现在导出只能靠 `--fix`，语义不对——没坏的文件不该走「修复」这条路）
+4. 组委会建议的第 2 条（数据清洗与修复）其实已经做完了大半（`repair.mbt`），
+   缺的是**把它写进答辩材料**，讲清楚做了哪些清洗、怎么验证修好了
+5. 可选：给 ASCII STL 也加上分块扫描（现在只支持二进制，遇到 ASCII 会优雅跳过并说明原因）
 
-- `moon.mod` — 模块名 `mik1e80/stlkit`，零第三方依赖
-- `moon.pkg` — 库本体只要核心库
-- `vec3.mbt` — Vec3 + 加减/叉乘/点乘/模长/单位化
-- `mesh.mbt` — Triangle、Aabb、Mesh 数据结构（**写这个文件时被打断了，要确认是否已写入**）
+## 已完成（截至 2026-09-25）
+
+**125 个测试全过，`moon check --target all --deny-warn` 零警告。**
+
+| 文件 | 内容 |
+|---|---|
+| `vec3.mbt` | Vec3：加减、叉乘、点乘、模长、单位化、`is_zero` |
+| `mesh.mbt` | `Triangle` / `Aabb` / `Mesh`，法线、面积、有符号体积、包围盒 |
+| `stl.mbt` | STL 解析（ASCII + 二进制）、格式判断、CRLF 处理 |
+| `obj.mbt` | OBJ 解析（共享顶点表、多边形扇形三角化、负数编号） |
+| `validate.mbt` | 顶点焊接与四项校验，容差 1e-6 mm |
+| `winding.mbt` | 绕向一致性检查（BFS）与统一 |
+| `repair.mbt` | 补洞、删退化/重复面、统一绕向、重算法线 |
+| `writer.mbt` | 导出二进制 / ASCII STL 与 OBJ |
+| `preview.mbt` | SVG 等轴测渲染（画家算法） |
+| `stream.mbt` | **流式扫描**：整块 / 分块两种，内存不随模型增长 |
+| `cmd/main/` | CLI：`--strict` `--bench` `--svg` `--fix` |
+| `web/` | 网页版（MoonBit 编译成 JS），含 `dist/web.js` 产物 |
+
+**坐标系约定**：坐标一律用 `Double`，即使二进制 STL 里存的是 float32——
+体积求和是上百万项累加，32 位会在累加过程中越飘越远。
+
+**流式扫描和全量解析是两份独立实现**，`stream_wbtest.mbt` 把每个字段逐项对照。
+改动其中任何一边（体积累加、坐标量化、边打包）都必须同步改另一边，否则结果会悄悄分叉。
 
 ## 技术约定
 
@@ -195,13 +261,46 @@ CLI 才引入 `argparse` / `x/fs` / `x/sys`。
 - **`moonbitlang/core/*` 是语言自带的核心库**，不用在 `moon.mod` 里声明，不算第三方依赖
 - **网页版**：`options(link: {"js": {"exports": [...], "format": "iife"}})`，
   选 `iife` 不选 `esm`——ES module 在 `file://` 下会被 CORS 拦掉
+- **`Bytes::to_unchecked_string` 不是 UTF-8 解码**：它把字节重新解释成 UTF-16，
+  512 字节会变成 256 个乱码字符。要 UTF-8 用 `@utf8.decode_lossy`。
+  判断文件格式时干脆逐字节搜 ASCII 特征，别走字符串
+- **`Bytes::from_fixedarray` 已改名 `from_array`**
+- **`Map::size` → `Map::length`**
+- **`monotonic_clock_end` 返回的是微秒，不是秒**（源码里是 `elapsed_secs * 1000000.0`）。
+  当成秒会打出「56020600 ms」这种数字
+- **`moonbitlang/x/fs` 只有 `read_file_to_bytes`**（一次读完），没有带偏移量的读取。
+  要分块读必须用 `moonbitlang/async/fs` 的 `File::read_at`（异步）
+- **`moon.pkg` 里导入别名写 `"path" @alias`**，不是 `as alias`（后者是解析错误）。
+  两个包都用默认别名 `fs` 会冲突，给它起个别名（`@asyncfs`）就行
+- **`_` 不能当 C 风格 for 循环的变量名**，会解析错误。用 `_i` / `_k`
+- **`loop` 和 `guard` 是保留字**，不能当变量名
+- **记录构造是 `TypeName::{ ... }`**，不是 `TypeName { ... }`
+- **match 分支里写多条语句要加 `{ }` 块**
+- **在循环里写嵌套的结构体字面量会报 `ambiguous_block`**，抽成命名函数最省事
+- **CLI 入口写成 `async fn main`**：一旦有任何一个分支要 await，整个入口就得是异步的
 
 ## 验证手段
 
-- `moon info && moon fmt && moon check --target all --deny-warn && moon test`（零警告）
+- `moon build` / `moon test` / `moon check --target all --deny-warn`（要求零警告）
+- **一次跑一条命令，不要用 `&&` 串成一大条**——用户会拒绝看不懂的长命令。
+  分开跑还更容易看出是哪一步挂了
+- **流式解析的正确性靠交叉验证**：`moon run cmd/main /c/tmp/huge.stl --bench`
+  会自己比对三条路径的三角形数和边界边数，对不上直接报错不当作基准
 - **无头 Edge 验证网页**：`msedge.exe --headless=new --disable-gpu --virtual-time-budget=4000 --dump-dom "file:///..."`，
   dump DOM 比截图可靠（上个项目靠它抓到过「函数定义了但忘了调用」的 bug）。
   注意截图有缓存，要加 `--user-data-dir=<新的临时目录>`
+
+## 大文件测试数据
+
+`/c/tmp/big.stl`（47 MB / 98 万三角形）、`/c/tmp/huge.stl`（95 MB / 200 万三角形）。
+生成它们的临时包 `cmd/gen` 已经删掉了，文件还在。要重新生成得再写一个。
+
+## ⚠️ 两个必须记住的操作教训
+
+1. **不要用 perl / sed 处理多行中文文本**。上个阶段这么干损坏了 3 个文件
+   （`repair.mbt`、`stream.mbt`、`web/web.mbt`），每次都靠 `git checkout` 或 Edit 恢复。
+   用 Edit 工具做精确替换。
+2. **`moon check` 有时会说 "no work to do" 但实际没编译**，别被它骗过去。
 
 ## 参考
 
