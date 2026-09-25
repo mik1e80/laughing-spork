@@ -1,8 +1,16 @@
 import {
   "moonbitlang/core/argparse",
+  "moonbitlang/core/bench",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/async",
+  "moonbitlang/async/fs" @asyncfs,
   "moonbitlang/x/fs",
   "moonbitlang/x/sys",
   "mik1e80/stlkit",
 }
+
+// 基准测试要分块读文件，走的是 moonbitlang/async 的 fs，
+// 而它只在 wasm / native 上有实现
+supported_targets = "-all+wasm+native"
 
 pkgtype(kind: "executable")

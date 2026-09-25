@@ -14,4 +14,5 @@ description = "MoonBit 实现的 STL/OBJ 三维网格工具链：解析、校验
 
 import {
   "moonbitlang/x@0.5.5",
+  "moonbitlang/async@0.22.1",
 }
